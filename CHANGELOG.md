@@ -12,6 +12,25 @@ Mudanças planejadas pra próxima versão. Nada aqui ainda.
 
 ---
 
+## [0.1.1] — 2026-04-30
+
+### Adicionado
+- **Núcleo local opcional** (Ollama com llama3.2:3b ~2GB) — instalado em paralelo durante a pousagem se o operador escolher
+- **Boas-vindas proativa pelo Telegram** — após o setup, instalador faz polling de até 2 minutos e envia primeira mensagem personalizada com nome, área e objetivo do operador assim que ele iniciar o bot
+- **Banner ASCII consistente** com o do README (alinhamento corrigido)
+- **chat_id persistido em `perfil.md`** — Buzz pode enviar mensagens proativas em conversas futuras sem depender de o operador escrever primeiro
+
+### Mudado
+- Etapas do instalador renumeradas (de 10 pra 12) por causa das novas fases
+- Configuração `config.json` agora inclui bloco `providers.ollama` quando núcleo local ativado
+- Anthropic marcado como `"primary": true` no config quando há múltiplos providers
+
+### Limitações conhecidas
+- Modelo local llama3.2:3b é o único oferecido na v0.1.1 (sem opção de escolha entre tamanhos no wizard ainda)
+- Smart routing entre providers ainda fica por conta do OpenClaw default — Buzz Router proprietário continua planejado pra v0.7
+
+---
+
 ## [0.1.0-mvp] — 2026-04-29
 
 Primeira pousagem. MVP em fase de teste com grupo fechado (família e amigos próximos do founder).

@@ -57,7 +57,7 @@ Três coisas. Sem nenhuma delas, melhor não começar — você ia travar no mei
 
 ---
 
-## Instalação em 4 passos
+## Instalação em 5 passos
 
 ### Passo 1 — Acesse seu servidor
 
@@ -69,7 +69,19 @@ ssh seu-usuario@ip-do-seu-servidor
 
 Se você não sabe como fazer isso, peça ajuda pra quem te indicou o Buzz — esse passo precisa de um pouco de noção de Linux.
 
-### Passo 2 — Baixe o Buzz
+### Passo 2 — Prepare a base do servidor
+
+**Se o servidor é Ubuntu recém-instalado**, rode primeiro este comando único pra deixar a base pronta:
+
+```bash
+sudo apt update && sudo apt install -y git curl ca-certificates
+```
+
+Sai uma chuva de texto na tela e dura uns 2 minutos. É normal. Quando o prompt voltar, está pronto.
+
+> Se já souber que `git` e `curl` estão instalados nesse servidor, pode pular este passo.
+
+### Passo 3 — Baixe o Buzz
 
 Já dentro do servidor, rode:
 
@@ -78,7 +90,7 @@ git clone https://github.com/adventurelabsbrasil/buzz.git
 cd buzz
 ```
 
-### Passo 3 — Instale
+### Passo 4 — Instale
 
 Ainda no servidor, na pasta `buzz`:
 
@@ -100,9 +112,9 @@ Durante a instalação, o Buzz vai:
 
 No final, ele vai te dar um link `https://t.me/seu_buzz_bot` — esse é seu canal de conversa com ele.
 
-### Passo 4 — Diga "oi"
+### Passo 5 — Diga "oi"
 
-Abra o link no Telegram e mande qualquer mensagem. O Buzz responde na hora.
+Abra o link no Telegram e mande qualquer mensagem. O Buzz responde na hora — e como ele aprendeu seu nome, área e objetivo durante a instalação, a primeira mensagem dele já vem personalizada.
 
 A partir desse momento, ele é seu.
 

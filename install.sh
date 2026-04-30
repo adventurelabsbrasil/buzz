@@ -27,7 +27,7 @@ readonly BUZZ_CONFIG="${BUZZ_HOME}/config.json"
 readonly BUZZ_SOUL="${BUZZ_HOME}/SOUL.md"
 readonly BUZZ_PERFIL="${BUZZ_HOME}/perfil.md"
 readonly BUZZ_LOG="${BUZZ_HOME}/install.log"
-readonly BUZZ_VERSION="0.1.0-mvp"
+readonly BUZZ_VERSION="0.1.1"
 
 # Cores (auto-desativa se não for terminal)
 if [[ -t 1 ]]; then
@@ -63,16 +63,16 @@ etapa() {
 banner() {
     printf "\n%s" "$C_GOLD"
     cat <<'EOF'
-   ██████╗ ██╗   ██╗███████╗███████╗
-   ██╔══██╗██║   ██║╚══███╔╝╚══███╔╝
-   ██████╔╝██║   ██║  ███╔╝   ███╔╝
-   ██╔══██╗██║   ██║ ███╔╝   ███╔╝
-   ██████╔╝╚██████╔╝███████╗███████╗
-   ╚═════╝  ╚═════╝ ╚══════╝╚══════╝
+██████╗ ██╗   ██╗███████╗███████╗
+██╔══██╗██║   ██║╚══███╔╝╚══███╔╝
+██████╔╝██║   ██║  ███╔╝   ███╔╝
+██╔══██╗██║   ██║ ███╔╝   ███╔╝
+██████╔╝╚██████╔╝███████╗███████╗
+╚═════╝  ╚═════╝ ╚══════╝╚══════╝
 EOF
     printf "%s\n" "$C_RESET"
-    printf "                  %sby Adventure Labs%s\n" "$C_BOLD" "$C_RESET"
-    printf "       %sSuporte: contato@adventurelabs.com.br%s\n\n" "$C_DIM" "$C_RESET"
+    printf "            %sby Adventure Labs%s\n" "$C_BOLD" "$C_RESET"
+    printf "%sSuporte: contato@adventurelabs.com.br%s\n\n" "$C_DIM" "$C_RESET"
 }
 
 # Captura de erros
@@ -228,10 +228,62 @@ EOF
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# Núcleo Local (Ollama, opcional)
+# ════════════════════════════════════════════════════════════════════════════
+oferecer_nucleo_local() {
+    etapa 4 "Núcleo local (opcional)"
+    buzz "Posso instalar um modelo local também — pra perguntas rápidas, sem custo de inferência."
+    buzz "Ocupa ~2 GB de disco e leva uns 5 minutos baixando."
+    echo
+
+    if [[ -n "${BUZZ_NUCLEO_LOCAL:-}" ]]; then
+        ATIVAR_NUCLEO_LOCAL="$BUZZ_NUCLEO_LOCAL"
+    else
+        printf "%sQuer instalar o núcleo local? [S/n]%s " "$C_BOLD" "$C_RESET"
+        read -r resp_nl
+        if [[ "$resp_nl" =~ ^[nN]$ ]]; then
+            ATIVAR_NUCLEO_LOCAL="nao"
+        else
+            ATIVAR_NUCLEO_LOCAL="sim"
+        fi
+    fi
+
+    if [[ "$ATIVAR_NUCLEO_LOCAL" == "sim" ]]; then
+        ok "Núcleo local será preparado em paralelo durante a pousagem"
+    else
+        ok "Sem núcleo local — Buzz vai usar só inteligência principal (online)"
+    fi
+}
+
+instalar_nucleo_local() {
+    [[ "${ATIVAR_NUCLEO_LOCAL:-nao}" == "sim" ]] || return 0
+
+    say "Provisionando núcleo local…"
+    if ! command -v ollama >/dev/null 2>&1; then
+        run_quiet bash -c "curl -fsSL https://ollama.com/install.sh | sh"
+        ok "Núcleo local instalado"
+    else
+        ok "Núcleo local já presente"
+    fi
+
+    # Garante serviço rodando
+    sudo systemctl enable --now ollama 2>/dev/null || \
+        run_quiet bash -c "nohup ollama serve > /tmp/ollama.log 2>&1 &"
+
+    sleep 3
+
+    # Baixa modelo padrão em background pra não travar a instalação
+    say "Baixando modelo padrão (llama3.2:3b ~2GB) em segundo plano…"
+    nohup ollama pull llama3.2:3b > "$BUZZ_HOME/ollama-pull.log" 2>&1 &
+    NUCLEO_PID=$!
+    ok "Download iniciado (PID $NUCLEO_PID — acompanhe com: tail -f $BUZZ_HOME/ollama-pull.log)"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # Telegram
 # ════════════════════════════════════════════════════════════════════════════
 configurar_telegram() {
-    etapa 4 "Conectando você ao Telegram"
+    etapa 5 "Conectando você ao Telegram"
     buzz "A forma mais fácil de conversar comigo é pelo Telegram do seu celular."
     buzz "Vou te guiar pra criar um bot pessoal seu — leva uns 2 minutos."
     echo
@@ -289,7 +341,7 @@ EOF
 # Dependências
 # ════════════════════════════════════════════════════════════════════════════
 instalar_dependencias() {
-    etapa 5 "Preparando o servidor"
+    etapa 6 "Preparando o servidor"
 
     say "Atualizando lista de pacotes…"
     run_quiet sudo apt-get update -y
@@ -327,7 +379,7 @@ instalar_node() {
 # Instalação do motor
 # ════════════════════════════════════════════════════════════════════════════
 instalar_motor() {
-    etapa 6 "Acordando o Buzz"
+    etapa 7 "Acordando o Buzz"
 
     mkdir -p "$BUZZ_HOME"
     chmod 700 "$BUZZ_HOME"
@@ -370,7 +422,37 @@ EOF
 EOF
     ok "Perfil do operador registrado"
 
-    # Configuração do motor
+    # Configuração do motor (provider local opcional)
+    local providers_block
+    if [[ "${ATIVAR_NUCLEO_LOCAL:-nao}" == "sim" ]]; then
+        providers_block=$(cat <<JSON
+  "providers": {
+    "anthropic": {
+      "apiKey": "$ANTHROPIC_API_KEY",
+      "model": "claude-sonnet-4-5",
+      "primary": true
+    },
+    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-responses",
+      "model": "llama3.2:3b"
+    }
+  },
+JSON
+)
+    else
+        providers_block=$(cat <<JSON
+  "providers": {
+    "anthropic": {
+      "apiKey": "$ANTHROPIC_API_KEY",
+      "model": "claude-sonnet-4-5",
+      "primary": true
+    }
+  },
+JSON
+)
+    fi
+
     cat > "$BUZZ_CONFIG" <<EOF
 {
   "version": "$BUZZ_VERSION",
@@ -379,12 +461,7 @@ EOF
     "soulFile": "$BUZZ_SOUL",
     "profileFile": "$BUZZ_PERFIL"
   },
-  "providers": {
-    "anthropic": {
-      "apiKey": "$ANTHROPIC_API_KEY",
-      "model": "claude-sonnet-4-5"
-    }
-  },
+${providers_block}
   "channels": {
     "telegram": {
       "enabled": true,
@@ -410,7 +487,7 @@ EOF
 # Wrappers de comando
 # ════════════════════════════════════════════════════════════════════════════
 instalar_atalhos() {
-    etapa 7 "Instalando atalhos"
+    etapa 8 "Instalando atalhos"
 
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -456,7 +533,7 @@ WRAP
 # Daemon (systemd)
 # ════════════════════════════════════════════════════════════════════════════
 configurar_daemon() {
-    etapa 8 "Deixando o Buzz sempre ligado"
+    etapa 9 "Deixando o Buzz sempre ligado"
 
     local user_systemd="$HOME/.config/systemd/user"
     mkdir -p "$user_systemd"
@@ -492,30 +569,96 @@ EOF
 # ════════════════════════════════════════════════════════════════════════════
 # Primeira vida
 # ════════════════════════════════════════════════════════════════════════════
-acender_buzz() {
-    etapa 9 "Acendendo o Buzz pela primeira vez"
+enviar_boas_vindas_proativa() {
+    etapa 10 "Primeira aparição do Buzz"
 
-    say "Iniciando…"
+    if [[ -z "${TELEGRAM_BOT_USERNAME:-}" || -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+        warn "Sem dados do Telegram pra primeira aparição. Pulando."
+        return 0
+    fi
+
+    echo
+    buzz "Agora vou esperar você abrir nosso canal."
+    echo
+    say "Abra no celular: ${C_BOLD}https://t.me/${TELEGRAM_BOT_USERNAME}${C_RESET}"
+    say "Mande qualquer mensagem — um '/start', um 'oi', uma saudação."
+    say "Vou te dar boas-vindas calibradas assim que receber."
+    echo
+    say "(Aguardo até 2 minutos)"
+
+    local timeout=120
+    local elapsed=0
+    local chat_id=""
+    local mensagens_existentes=""
+
+    # Captura updates antigos (caso usuário já tenha mexido) e ignora
+    mensagens_existentes=$(curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=-1" 2>/dev/null || echo '{}')
+    local last_update_id
+    last_update_id=$(echo "$mensagens_existentes" | jq -r '.result[-1].update_id // 0')
+    local next_offset=$((last_update_id + 1))
+
+    while [[ $elapsed -lt $timeout ]]; do
+        local updates
+        updates=$(curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${next_offset}&timeout=5" 2>/dev/null || echo '{}')
+        chat_id=$(echo "$updates" | jq -r '.result[0].message.chat.id // empty' 2>/dev/null)
+        if [[ -n "$chat_id" && "$chat_id" != "null" ]]; then
+            break
+        fi
+        sleep 2
+        ((elapsed+=7))  # +5 do timeout do polling +2 do sleep
+        printf "."
+    done
+    echo
+
+    if [[ -z "$chat_id" || "$chat_id" == "null" ]]; then
+        warn "Não recebi sua mensagem em ${timeout}s. Sem problema — quando mandar, eu respondo."
+        return 0
+    fi
+
+    ok "Recebido! Enviando boas-vindas…"
+
+    local welcome
+    welcome=$(cat <<EOF
+Olá, ${OPERADOR_NOME}! Eu sou o Buzz, seu copiloto da Adventure Labs.
+
+Acabei de acordar pela primeira vez aqui no seu servidor. Já anotei que você atua em ${OPERADOR_AREA} e que queria que eu te ajudasse com ${OPERADOR_OBJETIVO}.
+
+A partir de agora estou disponível 24h. Pode me chamar a qualquer momento.
+
+Pra começar, me conta uma coisa: o que está te ocupando essa semana?
+EOF
+)
+
+    curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        --data-urlencode "chat_id=${chat_id}" \
+        --data-urlencode "text=${welcome}" \
+        > /dev/null 2>&1 || warn "Falha ao enviar boas-vindas (continua mesmo assim)"
+
+    # Salva chat_id pro perfil
+    echo "" >> "$BUZZ_PERFIL"
+    echo "## Telegram" >> "$BUZZ_PERFIL"
+    echo "- chat_id: ${chat_id}" >> "$BUZZ_PERFIL"
+    echo "- Primeira conversa: $(date -Iseconds)" >> "$BUZZ_PERFIL"
+
+    ok "Boas-vindas enviadas"
+}
+
+acender_buzz() {
+    etapa 11 "Buzz no ar"
+
+    say "Iniciando o serviço permanente…"
     systemctl --user start buzz.service 2>/dev/null || \
         nohup openclaw run --config "$BUZZ_CONFIG" > "$BUZZ_HOME/buzz.log" 2>&1 &
 
     sleep 3
-    ok "Buzz em execução"
-
-    # Tenta enviar primeira mensagem pelo Telegram
-    if [[ -n "${TELEGRAM_BOT_USERNAME:-}" ]]; then
-        echo
-        buzz "Estou esperando você no Telegram."
-        say "Abra: ${C_BOLD}https://t.me/${TELEGRAM_BOT_USERNAME}${C_RESET}"
-        say "Mande qualquer mensagem (um 'oi' resolve) e eu respondo na hora."
-    fi
+    ok "Buzz em execução, escutando seu Telegram"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
 # Encerramento
 # ════════════════════════════════════════════════════════════════════════════
 encerrar() {
-    etapa 10 "Pronto"
+    etapa 12 "Pronto"
     echo
     buzz "Estação ativada, $OPERADOR_NOME. Agora o trabalho fica mais leve."
     echo
@@ -551,11 +694,14 @@ main() {
     verificar_sistema
     apresentar_buzz
     coletar_chave_anthropic
+    oferecer_nucleo_local
     configurar_telegram
     instalar_dependencias
+    instalar_nucleo_local
     instalar_motor
     instalar_atalhos
     configurar_daemon
+    enviar_boas_vindas_proativa
     acender_buzz
     encerrar
 }
