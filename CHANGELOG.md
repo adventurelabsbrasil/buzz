@@ -12,6 +12,30 @@ Mudanças planejadas pra próxima versão. Nada aqui ainda.
 
 ---
 
+## [0.1.2] — 2026-04-30
+
+### Adicionado
+- **Escolha de provider no onboarding** — Anthropic Claude Sonnet 4.5, Google Gemini Flash 2.0, OpenAI GPT-4o ou modo "Adventure Starcmd"
+- **Marca Adventure Starcmd** — modelo local da Adventure passa a ser apresentado por nome de produto (Lite, Mini, Pro, Multi) em vez de nome técnico (llama3.2:3b, mistral:7b, etc). Crédito aos modelos opensource permanece visível no wizard e no comando `buzz creditos`.
+- **Cadastro estendido no wizard** — coleta email, telefone (opcionais) e origem (Adventure Labs / indicação / GitHub / outro)
+- **Verificação de recursos pré-instalação** — checa RAM disponível, espaço em disco, e número de outros Buzz rodando no servidor; mostra avisos e pede confirmação se houver risco de sobrecarga
+- **Escolha de edição do Adventure Starcmd** — Lite (~2GB), Mini (~1.3GB), Pro (~4GB), Multi (~4.4GB) ou pular instalação
+- **Status do download do Adventure Starcmd no encerramento** — se o pull ainda estiver em andamento, mostra aviso claro de que Buzz já funciona com provider primary enquanto Starcmd termina
+- **Comando `buzz creditos`** — mostra a stack tecnológica completa, atribuindo OpenClaw (MIT), modelos opensource (Llama, Mistral, Qwen) e providers cloud (Anthropic, Google, OpenAI) explicitamente
+
+### Mudado
+- `coletar_chave_anthropic()` substituída por `escolher_provider_principal()` + `coletar_chave_provider()` (suporte multi-provider)
+- `~/.buzz/perfil.md` agora contém seções estruturadas: Identidade, Contato, Origem e contexto, Configuração
+- `~/.buzz/config.json` gerado dinamicamente conforme provider escolhido (`primary: true` no escolhido)
+- Ollama continua sendo download em background (não trava o wizard) — comportamento explicitado no UI
+
+### Decisões de design
+- Dados de cadastro (email, telefone) **ficam só no servidor do operador**. Não há envio pra Adventure Labs nesta versão. Se um dia houver telemetria opt-in, será comunicada explicitamente.
+- Ollama em **background, não foreground** — preserva tempo de pousagem rápido. Operador conversa com Buzz via provider cloud enquanto local termina.
+- Multi-provider simultâneo limitado a "1 primary + Ollama secondary opcional" nesta v0.1.2. Smart routing entre múltiplos providers cloud continua planejado pra v0.7.
+
+---
+
 ## [0.1.1] — 2026-04-30
 
 ### Adicionado

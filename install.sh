@@ -27,7 +27,7 @@ readonly BUZZ_CONFIG="${BUZZ_HOME}/config.json"
 readonly BUZZ_SOUL="${BUZZ_HOME}/SOUL.md"
 readonly BUZZ_PERFIL="${BUZZ_HOME}/perfil.md"
 readonly BUZZ_LOG="${BUZZ_HOME}/install.log"
-readonly BUZZ_VERSION="0.1.1"
+readonly BUZZ_VERSION="0.1.2"
 
 # Cores (auto-desativa se não for terminal)
 if [[ -t 1 ]]; then
@@ -145,6 +145,53 @@ verificar_sistema() {
         sudo -v
     fi
     ok "Permissões: ok"
+
+    verificar_recursos
+}
+
+verificar_recursos() {
+    say "Conferindo recursos disponíveis…"
+
+    local mem_disponivel_mb
+    mem_disponivel_mb=$(free -m | awk '/^Mem:/{print $7}' 2>/dev/null || echo "999999")
+
+    local disco_disponivel_gb
+    disco_disponivel_gb=$(df -BG "$HOME" 2>/dev/null | awk 'NR==2{gsub("G","",$4); print $4}' || echo "999")
+
+    local outros_buzz=0
+    if pgrep -f "openclaw run" >/dev/null 2>&1; then
+        outros_buzz=$(pgrep -c -f "openclaw run" 2>/dev/null || echo "0")
+    fi
+
+    local avisos=0
+    if (( mem_disponivel_mb < 1500 )); then
+        warn "Memória disponível baixa: ${mem_disponivel_mb}MB (recomendado mínimo 2GB)."
+        ((avisos++))
+    fi
+
+    if (( disco_disponivel_gb < 5 )); then
+        warn "Disco disponível baixo: ${disco_disponivel_gb}GB (recomendado mínimo 5GB)."
+        ((avisos++))
+    fi
+
+    if (( outros_buzz > 0 )); then
+        warn "${outros_buzz} outro(s) Buzz já rodando neste servidor (de outros usuários)."
+        warn "Várias instâncias podem disputar memória e CPU."
+        ((avisos++))
+    fi
+
+    if (( avisos > 0 )); then
+        echo
+        printf "%sQuer continuar mesmo assim? [s/N]%s " "$C_BOLD" "$C_RESET"
+        read -r resp
+        if [[ ! "$resp" =~ ^[sS]$ ]]; then
+            buzz "Tudo bem. Pra liberar mais recursos, peça pra outros operadores fecharem o Buzz deles e tente de novo."
+            exit 1
+        fi
+        warn "Continuando com aviso. Performance pode ser inferior."
+    else
+        ok "Recursos: ok (mem ${mem_disponivel_mb}MB, disco ${disco_disponivel_gb}GB)"
+    fi
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -157,6 +204,7 @@ apresentar_buzz() {
     echo
     sleep 1
 
+    # Nome (obrigatório)
     if [[ -n "${BUZZ_OPERADOR_NOME:-}" ]]; then
         OPERADOR_NOME="$BUZZ_OPERADOR_NOME"
         ok "Operador: $OPERADOR_NOME (já configurado)"
@@ -169,101 +217,233 @@ apresentar_buzz() {
     echo
     buzz "Prazer, $OPERADOR_NOME."
     sleep 1
+
+    # Área profissional
     printf "%sEm que você trabalha ou em que área atua? (uma frase basta)%s\n  > " "$C_BOLD" "$C_RESET"
     read -r OPERADOR_AREA
     OPERADOR_AREA="${OPERADOR_AREA:-(não informado)}"
 
+    # Objetivo
     echo
-    printf "%sTem alguma coisa específica que você quer que eu te ajude? (ex: emitir notas fiscais, organizar tarefas, ajudar com pesquisa)%s\n  > " "$C_BOLD" "$C_RESET"
+    printf "%sTem alguma coisa específica que você quer que eu te ajude? (ex: emitir NF, organizar tarefas, pesquisas)%s\n  > " "$C_BOLD" "$C_RESET"
     read -r OPERADOR_OBJETIVO
     OPERADOR_OBJETIVO="${OPERADOR_OBJETIVO:-(vamos descobrindo juntos)}"
 
+    # Email (opcional, fica local)
     echo
-    buzz "Anotado. Vou guardar isso pra calibrar como te atendo."
+    printf "%sSeu email (opcional, fica só no seu servidor — Enter pra pular):%s\n  > " "$C_DIM" "$C_RESET"
+    read -r OPERADOR_EMAIL
+    OPERADOR_EMAIL="${OPERADOR_EMAIL:-}"
+
+    # Telefone (opcional, fica local)
+    printf "%sSeu telefone com WhatsApp (opcional — Enter pra pular):%s\n  > " "$C_DIM" "$C_RESET"
+    read -r OPERADOR_TELEFONE
+    OPERADOR_TELEFONE="${OPERADOR_TELEFONE:-}"
+
+    # Origem
+    echo
+    cat <<EOF
+${C_DIM}Como você ficou sabendo do Buzz?${C_RESET}
+  1. Indicação direta da Adventure Labs
+  2. Indicação de família ou amigo
+  3. GitHub ou redes sociais
+  4. Outro
+
+EOF
+    printf "  > "
+    read -r escolha_origem
+    case "$escolha_origem" in
+        1) OPERADOR_ORIGEM="Adventure Labs" ;;
+        2) OPERADOR_ORIGEM="Indicação pessoal" ;;
+        3) OPERADOR_ORIGEM="GitHub / redes" ;;
+        4) OPERADOR_ORIGEM="Outro" ;;
+        *) OPERADOR_ORIGEM="(não informado)" ;;
+    esac
+
+    echo
+    buzz "Anotado, $OPERADOR_NOME. Vou guardar isso pra calibrar como te atendo."
+    buzz "Tudo fica só no seu servidor, em ${BUZZ_PERFIL}. Você é dono dos dados."
 }
 
 # ════════════════════════════════════════════════════════════════════════════
 # Coleta de coordenadas (chaves)
 # ════════════════════════════════════════════════════════════════════════════
-coletar_chave_anthropic() {
+escolher_provider_principal() {
     etapa 3 "Inteligência principal"
-    buzz "Pra eu pensar com qualidade, preciso de uma chave da Anthropic."
-    buzz "É a empresa que faz o Claude — o motor cerebral mais forte que eu uso."
+    buzz "Pra eu pensar com qualidade, conecto numa inteligência de IA externa."
+    buzz "Você escolhe qual usar — todas funcionam bem com o Buzz."
     echo
 
-    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-        ok "Chave Anthropic já configurada (via variável de ambiente)"
-        return 0
-    fi
-
     cat <<EOF
-Como conseguir uma chave Anthropic:
-  1. Abra https://console.anthropic.com no seu computador
-  2. Crie uma conta (ou faça login)
-  3. Vá em Settings → API Keys
-  4. Clique em "Create Key" e copie o valor
+${C_BOLD}Opções disponíveis:${C_RESET}
 
-A chave começa com "sk-ant-..." e tem cerca de 100 caracteres.
+  1. ${C_BOLD}Anthropic Claude Sonnet 4.5${C_RESET}    Qualidade alta, recomendado pra trabalho profundo
+                                  Onde gerar: https://console.anthropic.com
+                                  Custo médio: R\$ 10-30/mês uso normal
+
+  2. ${C_BOLD}Google Gemini Flash 2.0${C_RESET}        Bom equilíbrio, plano gratuito generoso
+                                  Onde gerar: https://aistudio.google.com
+                                  Custo médio: pode rodar de graça com limites
+
+  3. ${C_BOLD}OpenAI GPT-4o${C_RESET}                  Clássico, ampla disponibilidade
+                                  Onde gerar: https://platform.openai.com
+                                  Custo médio: R\$ 15-50/mês uso normal
+
+  4. ${C_BOLD}Adventure Starcmd${C_RESET}              Modelo Adventure rodando 100% no seu servidor
+                                  Custo zero, totalmente offline, sem chave externa
 
 EOF
 
     while true; do
-        printf "%sCole sua chave Anthropic (digitação fica oculta):%s\n  > " "$C_BOLD" "$C_RESET"
-        read -rs ANTHROPIC_API_KEY
+        printf "%sEscolha (1-4):%s " "$C_BOLD" "$C_RESET"
+        read -r escolha
+        case "$escolha" in
+            1) PROVIDER="anthropic"; break ;;
+            2) PROVIDER="google";    break ;;
+            3) PROVIDER="openai";    break ;;
+            4) PROVIDER="local";     break ;;
+            *) warn "Digite 1, 2, 3 ou 4." ;;
+        esac
+    done
+
+    if [[ "$PROVIDER" == "local" ]]; then
+        ok "Modo offline puro selecionado. Núcleo local será obrigatório na próxima etapa."
+        return 0
+    fi
+
+    coletar_chave_provider
+}
+
+coletar_chave_provider() {
+    local prefixo=""
+    local var_name=""
+    local label=""
+    local nome_prov=""
+
+    case "$PROVIDER" in
+        anthropic)
+            prefixo="sk-ant-"
+            var_name="ANTHROPIC_API_KEY"
+            label="Cole sua chave Anthropic"
+            nome_prov="Anthropic"
+            ;;
+        google)
+            prefixo=""
+            var_name="GOOGLE_API_KEY"
+            label="Cole sua chave Google AI Studio"
+            nome_prov="Google"
+            ;;
+        openai)
+            prefixo="sk-"
+            var_name="OPENAI_API_KEY"
+            label="Cole sua chave OpenAI"
+            nome_prov="OpenAI"
+            ;;
+    esac
+
+    # Se já veio por variável de ambiente, usa direto
+    if [[ -n "${!var_name:-}" ]]; then
+        ok "Chave $nome_prov já configurada (via variável de ambiente)"
+        return 0
+    fi
+
+    while true; do
+        printf "%s%s (digitação fica oculta):%s\n  > " "$C_BOLD" "$label" "$C_RESET"
+        read -rs valor
         echo
-        if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-            warn "Sem a chave eu não consigo pensar. Tenta de novo?"
+        if [[ -z "$valor" ]]; then
+            warn "Sem a chave eu não consigo conectar. Tenta de novo?"
             continue
         fi
-        if [[ ! "$ANTHROPIC_API_KEY" =~ ^sk-ant- ]]; then
-            warn "Hm, essa chave não tem o formato esperado (deveria começar com 'sk-ant-')."
+        if [[ -n "$prefixo" && ! "$valor" =~ ^${prefixo} ]]; then
+            warn "Hm, essa chave não tem o formato esperado (esperado: começar com '$prefixo')."
             printf "Tem certeza que é essa? [s/N] "
             read -r conf
-            [[ "$conf" =~ ^[sS]$ ]] && break
+            [[ "$conf" =~ ^[sS]$ ]] && { eval "$var_name=\"\$valor\""; export "$var_name"; break; }
             continue
         fi
+        eval "$var_name=\"\$valor\""
+        export "$var_name"
         break
     done
-    ok "Chave Anthropic registrada"
+    ok "Chave $nome_prov registrada"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
 # Núcleo Local (Ollama, opcional)
 # ════════════════════════════════════════════════════════════════════════════
 oferecer_nucleo_local() {
-    etapa 4 "Núcleo local (opcional)"
-    buzz "Posso instalar um modelo local também — pra perguntas rápidas, sem custo de inferência."
-    buzz "Ocupa ~2 GB de disco e leva uns 5 minutos baixando."
-    echo
+    etapa 4 "Adventure Starcmd"
 
-    if [[ -n "${BUZZ_NUCLEO_LOCAL:-}" ]]; then
-        ATIVAR_NUCLEO_LOCAL="$BUZZ_NUCLEO_LOCAL"
+    # Se escolheu "só Adventure Starcmd", já está obrigatório
+    if [[ "${PROVIDER:-}" == "local" ]]; then
+        buzz "Como você escolheu o Adventure Starcmd como inteligência principal, vou prepará-lo agora."
+        ATIVAR_NUCLEO_LOCAL="sim"
     else
-        printf "%sQuer instalar o núcleo local? [S/n]%s " "$C_BOLD" "$C_RESET"
-        read -r resp_nl
-        if [[ "$resp_nl" =~ ^[nN]$ ]]; then
-            ATIVAR_NUCLEO_LOCAL="nao"
+        buzz "Posso instalar o Adventure Starcmd também — modelo Adventure que roda no seu servidor."
+        buzz "É o que me deixa responder offline e sem custo, em paralelo com a inteligência principal."
+        echo
+        if [[ -n "${BUZZ_NUCLEO_LOCAL:-}" ]]; then
+            ATIVAR_NUCLEO_LOCAL="$BUZZ_NUCLEO_LOCAL"
         else
+            printf "%sQuer instalar o Adventure Starcmd? [S/n]%s " "$C_BOLD" "$C_RESET"
+            read -r resp_nl
+            if [[ "$resp_nl" =~ ^[nN]$ ]]; then
+                ATIVAR_NUCLEO_LOCAL="nao"
+                MODELO_LOCAL=""
+                ok "Sem Adventure Starcmd — Buzz usa só inteligência principal (online)"
+                return 0
+            fi
             ATIVAR_NUCLEO_LOCAL="sim"
         fi
     fi
 
-    if [[ "$ATIVAR_NUCLEO_LOCAL" == "sim" ]]; then
-        ok "Núcleo local será preparado em paralelo durante a pousagem"
+    # Escolha da edição
+    echo
+    cat <<EOF
+${C_BOLD}Qual edição do Adventure Starcmd instalar?${C_RESET}
+${C_DIM}(o download acontece em paralelo, não trava a instalação)${C_RESET}
+
+  1. ${C_BOLD}Adventure Starcmd Lite${C_RESET}    ~2 GB    ~5 min       Recomendado (equilíbrio)
+  2. ${C_BOLD}Adventure Starcmd Mini${C_RESET}    ~1.3 GB  ~3 min       Ultra-leve, respostas rápidas
+  3. ${C_BOLD}Adventure Starcmd Pro${C_RESET}     ~4 GB    ~11 min      Conhecimento amplo
+  4. ${C_BOLD}Adventure Starcmd Multi${C_RESET}   ~4.4 GB  ~12 min      Conversacional, multilíngue
+  5. Pular agora (instalo depois manualmente)
+
+  ${C_DIM}─ Adventure Starcmd é construído sobre modelos opensource (Llama, Mistral, Qwen)${C_RESET}
+  ${C_DIM}  embalados, calibrados e mantidos pela Adventure Labs.${C_RESET}
+
+EOF
+    printf "%sEscolha (1-5):%s " "$C_BOLD" "$C_RESET"
+    read -r esc_modelo
+    case "$esc_modelo" in
+        1) MODELO_LOCAL="llama3.2:3b";  STARCMD_NOME="Adventure Starcmd Lite" ;;
+        2) MODELO_LOCAL="llama3.2:1b";  STARCMD_NOME="Adventure Starcmd Mini" ;;
+        3) MODELO_LOCAL="mistral:7b";   STARCMD_NOME="Adventure Starcmd Pro" ;;
+        4) MODELO_LOCAL="qwen2.5:7b";   STARCMD_NOME="Adventure Starcmd Multi" ;;
+        5) MODELO_LOCAL=""; STARCMD_NOME=""; ATIVAR_NUCLEO_LOCAL="adiado" ;;
+        *) MODELO_LOCAL="llama3.2:3b";  STARCMD_NOME="Adventure Starcmd Lite" ;;
+    esac
+
+    if [[ -n "$MODELO_LOCAL" ]]; then
+        ok "$STARCMD_NOME — vai baixar em paralelo durante a pousagem"
     else
-        ok "Sem núcleo local — Buzz vai usar só inteligência principal (online)"
+        ok "Adventure Starcmd adiado — você pode instalar depois rodando: ollama pull <modelo>"
     fi
 }
 
 instalar_nucleo_local() {
-    [[ "${ATIVAR_NUCLEO_LOCAL:-nao}" == "sim" ]] || return 0
+    # Se desativado ou adiado, instala só o engine ou pula
+    if [[ "${ATIVAR_NUCLEO_LOCAL:-nao}" == "nao" ]]; then
+        return 0
+    fi
 
-    say "Provisionando núcleo local…"
+    say "Provisionando o motor local do Adventure Starcmd…"
     if ! command -v ollama >/dev/null 2>&1; then
         run_quiet bash -c "curl -fsSL https://ollama.com/install.sh | sh"
-        ok "Núcleo local instalado"
+        ok "Motor instalado"
     else
-        ok "Núcleo local já presente"
+        ok "Motor já presente"
     fi
 
     # Garante serviço rodando
@@ -272,9 +452,15 @@ instalar_nucleo_local() {
 
     sleep 3
 
-    # Baixa modelo padrão em background pra não travar a instalação
-    say "Baixando modelo padrão (llama3.2:3b ~2GB) em segundo plano…"
-    nohup ollama pull llama3.2:3b > "$BUZZ_HOME/ollama-pull.log" 2>&1 &
+    # Se adiado, paramos aqui (motor instalado, sem modelo)
+    if [[ "${ATIVAR_NUCLEO_LOCAL}" == "adiado" || -z "${MODELO_LOCAL:-}" ]]; then
+        ok "Motor instalado. Pra baixar uma edição depois: ollama pull <modelo>"
+        return 0
+    fi
+
+    # Baixa modelo escolhido em background
+    say "Baixando ${STARCMD_NOME} em segundo plano…"
+    nohup ollama pull "$MODELO_LOCAL" > "$BUZZ_HOME/ollama-pull.log" 2>&1 &
     NUCLEO_PID=$!
     ok "Download iniciado (PID $NUCLEO_PID — acompanhe com: tail -f $BUZZ_HOME/ollama-pull.log)"
 }
@@ -407,51 +593,86 @@ EOF
     fi
     ok "Persona Buzz instalada"
 
-    # Perfil do operador
+    # Perfil do operador (estendido com cadastro)
     cat > "$BUZZ_PERFIL" <<EOF
 # Perfil do operador
 
+## Identidade
 - **Nome:** $OPERADOR_NOME
-- **Área:** $OPERADOR_AREA
+- **Área de atuação:** $OPERADOR_AREA
 - **Objetivo inicial:** $OPERADOR_OBJETIVO
+
+## Contato
+- **Email:** ${OPERADOR_EMAIL:-(não informado)}
+- **Telefone/WhatsApp:** ${OPERADOR_TELEFONE:-(não informado)}
+
+## Origem e contexto
+- **Como ficou sabendo:** $OPERADOR_ORIGEM
 - **Idioma preferido:** Português brasileiro
 - **Servidor:** $(hostname) ($(uname -s))
 - **Instalado em:** $(date -Iseconds)
 
-> Buzz: este arquivo é seu caderno de notas sobre o operador. Atualize-o conforme conversam.
+## Configuração
+- **Inteligência principal:** $(case "$PROVIDER" in
+    anthropic) echo "Anthropic Claude Sonnet 4.5" ;;
+    google)    echo "Google Gemini Flash 2.0" ;;
+    openai)    echo "OpenAI GPT-4o" ;;
+    local)     echo "${STARCMD_NOME:-Adventure Starcmd}" ;;
+esac)
+- **Adventure Starcmd:** ${STARCMD_NOME:-(não instalado)}${MODELO_LOCAL:+ — base técnica: $MODELO_LOCAL (opensource)}
+
+> Buzz: este arquivo é seu caderno de notas sobre o operador. Atualize-o conforme conversam — quando aparecer info nova (preferência, projeto, contato importante), adicione aqui pra lembrar nas próximas conversas.
 EOF
     ok "Perfil do operador registrado"
 
-    # Configuração do motor (provider local opcional)
-    local providers_block
-    if [[ "${ATIVAR_NUCLEO_LOCAL:-nao}" == "sim" ]]; then
-        providers_block=$(cat <<JSON
-  "providers": {
-    "anthropic": {
-      "apiKey": "$ANTHROPIC_API_KEY",
+    # Configuração do motor — provider primary varia conforme escolha do operador
+    local primary_block=""
+    case "$PROVIDER" in
+        anthropic)
+            primary_block='    "anthropic": {
+      "apiKey": "'"$ANTHROPIC_API_KEY"'",
       "model": "claude-sonnet-4-5",
       "primary": true
-    },
+    }'
+            ;;
+        google)
+            primary_block='    "google": {
+      "apiKey": "'"$GOOGLE_API_KEY"'",
+      "model": "gemini-2.0-flash",
+      "primary": true
+    }'
+            ;;
+        openai)
+            primary_block='    "openai": {
+      "apiKey": "'"$OPENAI_API_KEY"'",
+      "model": "gpt-4o",
+      "primary": true
+    }'
+            ;;
+        local)
+            primary_block='    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-responses",
+      "model": "'"${MODELO_LOCAL:-llama3.2:3b}"'",
+      "primary": true
+    }'
+            ;;
+    esac
+
+    # Adiciona Ollama como secondary se foi ativado e não é o primary
+    local secondary_block=""
+    if [[ "${ATIVAR_NUCLEO_LOCAL:-nao}" == "sim" && "$PROVIDER" != "local" && -n "${MODELO_LOCAL:-}" ]]; then
+        secondary_block=',
     "ollama": {
       "baseUrl": "http://127.0.0.1:11434/v1",
       "api": "openai-responses",
-      "model": "llama3.2:3b"
-    }
-  },
-JSON
-)
-    else
-        providers_block=$(cat <<JSON
-  "providers": {
-    "anthropic": {
-      "apiKey": "$ANTHROPIC_API_KEY",
-      "model": "claude-sonnet-4-5",
-      "primary": true
-    }
-  },
-JSON
-)
+      "model": "'"$MODELO_LOCAL"'"
+    }'
     fi
+
+    local providers_block="  \"providers\": {
+${primary_block}${secondary_block}
+  },"
 
     cat > "$BUZZ_CONFIG" <<EOF
 {
@@ -508,6 +729,25 @@ case "${1:-}" in
     logs)    journalctl --user -u buzz -f -n 50 2>/dev/null || tail -f "$HOME/.buzz/buzz.log" ;;
     restart) buzz-stop && sleep 1 && buzz-start ;;
     info)    cat "$HOME/.buzz/SOUL.md" ;;
+    creditos|credits|about)
+        cat <<INFO
+Buzz — Adventure Labs
+Versão: $(grep -o '"version"[^,]*' "$HOME/.buzz/config.json" 2>/dev/null | cut -d'"' -f4)
+
+Inteligências disponíveis nesta estação:
+  Provider principal: $(grep -A1 '"primary": true' "$HOME/.buzz/config.json" 2>/dev/null | head -1 | tr -d '" ,:{}')
+  Adventure Starcmd:  $(grep '"model"' "$HOME/.buzz/config.json" 2>/dev/null | grep -v primary | head -1 | cut -d'"' -f4)
+
+Construído sobre tecnologia opensource:
+  - OpenClaw (MIT) — gateway multi-canal
+  - Modelos Llama / Mistral / Qwen — base técnica do Adventure Starcmd
+  - Anthropic / Google / OpenAI — inteligências cloud (sob escolha do operador)
+
+Adventure Labs embala, dá personalidade e mantém.
+Repositório: https://github.com/adventurelabsbrasil/buzz
+Suporte: contato@adventurelabs.com.br
+INFO
+        ;;
     *)
         cat <<HELP
 Buzz — copiloto da Adventure Labs
@@ -519,6 +759,7 @@ Comandos:
   buzz logs      acompanha o que o Buzz está fazendo (Ctrl+C pra sair)
   buzz restart   reinicia o Buzz
   buzz info      mostra a personalidade do Buzz
+  buzz creditos  mostra a stack tecnológica e créditos opensource
 
 Pra conversar com o Buzz, use o Telegram que você configurou na instalação.
 HELP
@@ -662,6 +903,19 @@ encerrar() {
     echo
     buzz "Estação ativada, $OPERADOR_NOME. Agora o trabalho fica mais leve."
     echo
+
+    # Status do download do Adventure Starcmd (se houver)
+    if [[ -n "${NUCLEO_PID:-}" ]]; then
+        if kill -0 "$NUCLEO_PID" 2>/dev/null; then
+            warn "${STARCMD_NOME} ainda baixando em segundo plano."
+            warn "Buzz já funciona com a inteligência principal. Quando o download terminar, o Starcmd fica disponível."
+            warn "Acompanhar: ${C_BOLD}tail -f $BUZZ_HOME/ollama-pull.log${C_RESET}"
+            echo
+        else
+            ok "${STARCMD_NOME} pronto"
+        fi
+    fi
+
     say "Comandos úteis:"
     say "  ${C_BOLD}buzz status${C_RESET}    — como o Buzz está"
     say "  ${C_BOLD}buzz logs${C_RESET}      — acompanha o que ele faz"
@@ -693,7 +947,7 @@ main() {
 
     verificar_sistema
     apresentar_buzz
-    coletar_chave_anthropic
+    escolher_provider_principal
     oferecer_nucleo_local
     configurar_telegram
     instalar_dependencias
